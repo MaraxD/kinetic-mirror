@@ -19,7 +19,7 @@
 </li>
 </ul>
 
-## Prerquisites
+## Prerequisites
 1. Clone this repository and make you have Arduino and Max installed
 2. Clone this MediaPipe bundle for Max, https://github.com/lysdexic-audio/jweb-hands-landmarker. 
 3. After cloning, open jweb-hands-landmarker.maxpat and attach these components:
