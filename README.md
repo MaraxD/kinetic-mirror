@@ -22,9 +22,8 @@
 ## Prerequisites
 1. Clone this repository and make you have Arduino and Max installed
 2. Clone this MediaPipe bundle for Max, https://github.com/lysdexic-audio/jweb-hands-landmarker. 
-3. After cloning, open jweb-hands-landmarker.maxpat and attach these components:
+3. After cloning, drag and drop the dataprocessing file into the jweb-hands-landmarker folder. Double tap on the [dataprocessing] component to check if it was corectly added.
 
-![alt text](media/max_components.png)
 4. Install the Servo library and the Adafruit PWM Servo Driver library
 
 ## Wiring up Arduino Uno to the first PWM boards
