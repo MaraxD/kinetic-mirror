@@ -9,20 +9,21 @@
 
 #include <Servo.h>                    //install Servo library
 #include <Adafruit_PWMServoDriver.h>  // adafruit pwm servo driver library
+#include <Thread.h>
+#include <ThreadController.h>
 
 Adafruit_PWMServoDriver board1 = Adafruit_PWMServoDriver(0x40);  // called this way, it uses the default address 0x40
 Adafruit_PWMServoDriver board2 = Adafruit_PWMServoDriver(0x41);
 
+ThreadController controller = ThreadController();
+
+Thread animationThread = Thread();
+Thread serialThread = Thread();
+
 #define SERVOMIN 125  // this is the 'minimum' pulse length count (out of 4096)
 #define SERVOMAX 625  // this is the 'maximum' pulse length count (out of 4096)
 
-#define OE1 7
-#define OE2 8
 
-int activeChannelsBoard1[8];
-int activeChannelsBoard2[8];
-
-char buffer[30];
 int colNumber, angle, time;
 bool handDetected = false;
 int startingColumnNo;
@@ -30,6 +31,10 @@ int startingColumnNo;
 const int numColumns = 3;
 int currentAngle[numColumns] = { 38 };
 bool goingUp[numColumns] = { true };
+
+unsigned long lastReceivedTime = 0;
+const unsigned long handTimeout = 500;
+unsigned long lastHandTime = 0;
 
 
 
@@ -47,8 +52,81 @@ void setup() {
 
   resetPanels();
 
-  randomSeed(8);
-  
+  randomSeed(3);
+
+  animationThread.onRun([]() {
+    if (!handDetected) {
+      delay(100);
+      startingColumnNo = random(0, 6);
+      secondIdleMode();
+      resetPanels();
+      idleMode();
+      resetPanels();
+      delay(100);
+    }
+  });
+  animationThread.setInterval(50);
+
+  serialThread.onRun([]() {
+    if (Serial.available()) {
+
+      colNumber = Serial.parseInt();
+      angle = Serial.parseInt();
+
+      if (Serial.read() == '\n') {
+        handDetected = true;
+        lastHandTime = millis();
+
+        if (colNumber < 4) {
+
+          board1.setPWM(4 * colNumber, 0, angleToPulse(angle));
+          board1.setPWM(4 * colNumber + 1, 0, angleToPulse(angle));
+          board1.setPWM(4 * colNumber + 2, 0, angleToPulse(angle));
+          board1.setPWM(4 * colNumber + 3, 0, angleToPulse(angle));
+        } else {
+
+          //the rest of the logic will be on the second board
+          board2.setPWM(((colNumber - 4) * 4) + 0, 0, angleToPulse(angle));
+          board2.setPWM(((colNumber - 4) * 4) + 1, 0, angleToPulse(angle));
+          board2.setPWM(((colNumber - 4) * 4) + 2, 0, angleToPulse(angle));
+          board2.setPWM(((colNumber - 4) * 4) + 3, 0, angleToPulse(angle));
+        }
+      }
+    }
+  });
+  serialThread.setInterval(10);
+
+  controller.add(&animationThread);
+  controller.add(&serialThread);
+}
+
+void loop() {
+
+  controller.run();
+
+  if (handDetected && millis() - lastHandTime > 3000) {
+    handDetected = false;
+  }
+
+
+
+
+  //   if (handDetected) {
+  //     handDetected = false;
+  //     delay(100);
+  //     startingColumnNo = random(0, 6);
+  //     secondIdleMode();
+  //     resetPanels();
+  //     idleMode();
+  //     resetPanels();
+  //     delay(100);
+  //   }
+  // }
+  // else {
+  //   if (!handDetected) {
+  //     handDetected = true;
+  //   }
+  // }
 }
 
 void resetPanels() {
@@ -58,64 +136,12 @@ void resetPanels() {
   }
 }
 
-void loop() {
-  // if(justStarted){
-  //   secondIdleMode();
-  //   idleMode();
-  //   resetPanels();
-  //   delay(100);
-  // }
-
-  if (Serial.available()) {
-    handDetected = true;
-
-    colNumber = Serial.parseInt();
-    angle = Serial.parseInt();
-
-    if (Serial.read() == '\n') {
-      // Serial.print("col: ");
-      // Serial.print(colNumber);
-      // Serial.print(" | angle: ");
-      // Serial.println(angle);
-
-      if (colNumber < 4) {
-
-        board1.setPWM(4 * colNumber, 0, angleToPulse(angle));
-        board1.setPWM(4 * colNumber + 1, 0, angleToPulse(angle));
-        board1.setPWM(4 * colNumber + 2, 0, angleToPulse(angle));
-        board1.setPWM(4 * colNumber + 3, 0, angleToPulse(angle));
-      } else {
-
-        //the rest of the logic will be on the second board
-        board2.setPWM(((colNumber - 4) * 4) + 0, 0, angleToPulse(angle));
-        board2.setPWM(((colNumber - 4) * 4) + 1, 0, angleToPulse(angle));
-        board2.setPWM(((colNumber - 4) * 4) + 2, 0, angleToPulse(angle));
-        board2.setPWM(((colNumber - 4) * 4) + 3, 0, angleToPulse(angle));
-      }
-    }
-  } else {
-    handDetected = false;
-  }
-
-  // if (!handDetected) {
-  //   delay(100);
-  //   startingColumnNo = random(0, 6);
-  //   secondIdleMode();
-  //   idleMode();
-  //   resetPanels();
-  //   delay(100);
-  // }
-}
-
 int angleToPulse(int ang)  //gets angle in degree and returns the pulse width
 {
   int pulse = map(ang, 0, 90, SERVOMIN, SERVOMAX);  // map angle of 0 to 90 to Servo min and Servo max
   Serial.write(pulse);
   return pulse;
 }
-
-
-
 
 void writeToColumn(int group, int angle) {
   int baseIndex = group * 4;
@@ -135,16 +161,17 @@ void secondIdleMode() {
   for (int step = 0; step < 200; step++) {
     if (handDetected) return;
     for (int col = startingColumnNo; col < startingColumnNo + 3; col++) {
+      int idx = col - startingColumnNo;
       if (step >= col * 10) {
-        if (goingUp[col - startingColumnNo]) {
-          currentAngle[col - startingColumnNo]++;
-          if (currentAngle[col - startingColumnNo] >= 58) goingUp[col - startingColumnNo] = false;
+        if (goingUp[idx]) {
+          currentAngle[idx]++;
+          if (currentAngle[idx] >= 58) goingUp[idx] = false;
         } else {
-          currentAngle[col - startingColumnNo]--;
-          if (currentAngle[col - startingColumnNo] <= 38) goingUp[col - startingColumnNo] = true;
+          currentAngle[idx]--;
+          if (currentAngle[idx] <= 38) goingUp[idx] = true;
         }
 
-        writeToColumn(col, currentAngle[col - startingColumnNo]);
+        writeToColumn(col, currentAngle[idx]);
       }
     }
     delay(30);
@@ -156,11 +183,6 @@ void idleMode() {
     if (handDetected) return;
     int baseIndex = group * 4;
     bool isEven = group % 2 == 0;
-
-    int localIndex;
-
-    // ----- Overlapping zone (columns 3 and 4) -----
-    bool overlap = (group == 3 || group == 4);
 
     if (isEven) {
       for (int angle = 38; angle <= 58; angle += 5) {
